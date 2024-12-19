@@ -18,7 +18,10 @@ def parse_sitemap(sitemap_url):
     Parse the sitemap XML and return a list of URLs
     """
     try:
-        response = requests.get(sitemap_url)
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
+        response = requests.get(sitemap_url, headers=headers)
         response.raise_for_status()
         
         root = ET.fromstring(response.content)
@@ -119,6 +122,7 @@ def main():
     parser.add_argument('--sitemap_url', required=True, help='URL of the sitemap.xml file')
     parser.add_argument('--output_dir', default='output', help='Output directory for markdown files')
     parser.add_argument('--api_key', help='RapidAPI key (can also be set as RAPID_API_KEY env variable)')
+    parser.add_argument('--dry-run', action='store_true', help='Show what would be downloaded without actually downloading')
     
     args = parser.parse_args()
     
@@ -130,8 +134,9 @@ def main():
         logger.error("RapidAPI key is required. Set it as RAPID_API_KEY environment variable or pass --api_key")
         return
     
-    # Create output directory
-    os.makedirs(args.output_dir, exist_ok=True)
+    # Create output directory (skip in dry run)
+    if not args.dry_run:
+        os.makedirs(args.output_dir, exist_ok=True)
     
     # Get URLs from sitemap
     urls = parse_sitemap(args.sitemap_url)
@@ -139,11 +144,21 @@ def main():
     
     # Process each URL
     for url in urls:
-        logger.info(f"Processing: {url}")
-        article_data = parse_article(url)
-        content = convert_to_markdown(article_data)
-        if content:
-            save_markdown(content, url, args.output_dir)
+        if args.dry_run:
+            parsed_url = urlparse(url)
+            domain = parsed_url.netloc
+            path = parsed_url.path.strip('/') or 'index'
+            file_path = os.path.join(args.output_dir, domain, path)
+            if not file_path.endswith('.md'):
+                file_path += '.md'
+            logger.info(f"Would download: {url}")
+            logger.info(f"Would save to: {file_path}")
+        else:
+            logger.info(f"Processing: {url}")
+            article_data = parse_article(url)
+            content = convert_to_markdown(article_data)
+            if content:
+                save_markdown(content, url, args.output_dir)
 
 if __name__ == '__main__':
     main() 
