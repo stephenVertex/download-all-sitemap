@@ -87,9 +87,9 @@ def download_with_semareader(article_url: str) -> dict:
         logger.error(f"Error parsing article with Sema Reader: {e}")
         return {"success": False, "error": str(e)}
 
-def convert_to_markdown(article_data: dict) -> Optional[str]:
+def convert_to_markdown(article_data: dict, url: str) -> Optional[str]:
     """
-    Convert article data to markdown format
+    Convert article data to markdown format with YAML metadata block
     """
     try:
         # Handle article-extractor2 format
@@ -101,22 +101,32 @@ def convert_to_markdown(article_data: dict) -> Optional[str]:
             article_data = article_data.get('data', {})
         
         # Handle semareader format
-        elif not article_data.get('success', True):  # Keep existing check for semareader
+        elif not article_data.get('success', True):
             logger.error(f"Article extraction failed: {article_data.get('error', 'Unknown error')}")
             return None
 
         markdown_content = []
         
+        # Add YAML metadata block using block scalar style
+        markdown_content.append('---')
+        markdown_content.append(f'url: {url}')
+        if article_data.get('title'):
+            markdown_content.append('title: |-')
+            markdown_content.append(f'  {article_data["title"]}')
+        if article_data.get('author'):
+            markdown_content.append('author: |-')
+            markdown_content.append(f'  {article_data["author"]}')
+        if article_data.get('published') or article_data.get('published_date'):
+            published = article_data.get('published') or article_data.get('published_date')
+            markdown_content.append(f'date: {published}')
+        if article_data.get('description'):
+            markdown_content.append('description: |-')
+            markdown_content.append(f'  {article_data["description"]}')
+        markdown_content.append('---\n')
+        
         # Add title
         if article_data.get('title'):
             markdown_content.append(f"# {article_data['title']}\n")
-        
-        # Add metadata if available
-        if article_data.get('author'):
-            markdown_content.append(f"Author: {article_data['author']}\n")
-        if article_data.get('published') or article_data.get('published_date'):
-            published = article_data.get('published') or article_data.get('published_date')
-            markdown_content.append(f"Published: {published}\n")
         
         # Add main content
         if article_data.get('content'):
@@ -211,6 +221,79 @@ def get_markdown_path(url: str, output_dir: str) -> str:
         
     return file_path
 
+def update_markdown_with_metadata(markdown_path: str, json_path: str) -> None:
+    """
+    Update an existing markdown file with metadata from its companion JSON file
+    """
+    try:
+        # Read the JSON data
+        with open(json_path, 'r', encoding='utf-8') as f:
+            json_data = json.load(f)
+            
+        # Get the article data and URL
+        article_data = json_data['response']
+        url = json_data['url']
+        
+        # If using article-extractor2 format, get the actual data
+        if 'error' in article_data and article_data.get('data'):
+            article_data = article_data['data']
+            
+        # Read existing markdown content
+        with open(markdown_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+            
+        # Skip if the file already has YAML frontmatter
+        if content.startswith('---'):
+            logger.info(f"File already has metadata block, skipping: {markdown_path}")
+            return
+            
+        # Create metadata block using YAML block scalar style
+        metadata = ['---']
+        metadata.append(f'url: {url}')
+        if article_data.get('title'):
+            metadata.append('title: |-')
+            metadata.append(f'  {article_data["title"]}')
+        if article_data.get('author'):
+            metadata.append('author: |-')
+            metadata.append(f'  {article_data["author"]}')
+        if article_data.get('published') or article_data.get('published_date'):
+            published = article_data.get('published') or article_data.get('published_date')
+            metadata.append(f'date: {published}')
+        if article_data.get('description'):
+            metadata.append('description: |-')
+            metadata.append(f'  {article_data["description"]}')
+        metadata.append('---\n')
+        
+        # Combine metadata with existing content
+        updated_content = '\n'.join(metadata) + content
+        
+        # Write updated content back to file
+        with open(markdown_path, 'w', encoding='utf-8') as f:
+            f.write(updated_content)
+            
+        logger.info(f"Updated metadata for: {markdown_path}")
+        
+    except Exception as e:
+        logger.error(f"Error updating metadata for {markdown_path}: {e}")
+
+def update_existing_files(output_dir: str) -> None:
+    """
+    Update all existing markdown files in the output directory with metadata from their JSON companions
+    
+    Args:
+        output_dir: Base directory containing the markdown and JSON files
+    """
+    for root, _, files in os.walk(output_dir):
+        for file in files:
+            if file.endswith('.md'):
+                md_path = os.path.join(root, file)
+                json_path = md_path[:-3] + '.json'  # Replace .md with .json
+                
+                if os.path.exists(json_path):
+                    update_markdown_with_metadata(md_path, json_path)
+                else:
+                    logger.warning(f"No companion JSON file found for: {md_path}")
+
 def main():
     parser = argparse.ArgumentParser(description='Download sitemap pages as markdown')
     parser.add_argument('--sitemap_url', required=True, help='URL of the sitemap.xml file')
@@ -227,6 +310,8 @@ def main():
                        help='Limit the number of articles to download')
     parser.add_argument('--filter', type=str,
                        help='Only process URLs containing this string (e.g. "blog")')
+    parser.add_argument('--update-metadata', action='store_true',
+                       help='Update existing markdown files with metadata from JSON files')
     
     args = parser.parse_args()
     
@@ -236,6 +321,12 @@ def main():
     
     if not RAPID_API_KEY:
         logger.error("RapidAPI key is required. Set it as RAPID_API_KEY environment variable or pass --api_key")
+        return
+    
+    # Add this near the start of main(), after setting up the API key
+    if args.update_metadata:
+        logger.info("Updating existing markdown files with metadata...")
+        update_existing_files(args.output_dir)
         return
     
     # Create output directory (skip in dry run)
@@ -288,7 +379,7 @@ def main():
             # Save the raw JSON response first
             save_json_response(article_data, url, args.output_dir, args.parser)
                 
-            content = convert_to_markdown(article_data)
+            content = convert_to_markdown(article_data, url)
             if content:
                 save_markdown(content, url, args.output_dir)
 

@@ -34,6 +34,8 @@ set RAPID_API_KEY=your-api-key
 
 ## Usage
 
+Clean markdown files from downloaded websites:
+
 ```bash
 python download_sitemap.py --sitemap_url https://www.example.com/sitemap.xml
 ```
@@ -59,6 +61,27 @@ TODO - Use Claude Haiku to do some cleanup on the .md to remove leftover HTML ta
 ## Output
 
 The script will create a directory structure under `output/${DOMAIN}/` containing all the downloaded pages as markdown files.
+
+
+## Cleaning HTML from Markdown
+
+After downloading the pages, you can clean up any remaining HTML tags using Claude Haiku:
+
+```bash
+python clean_markdown.py --input output/example.com
+```
+
+This will create a new directory `output/example.com_cleaned` with the cleaned markdown files.
+
+You can also specify a custom output directory:
+```bash
+python clean_markdown.py --input output/example.com --output cleaned_files
+```
+
+### Requirements
+
+- AWS credentials configured with access to Amazon Bedrock
+- Claude Haiku model enabled in your AWS account
 
 
 
