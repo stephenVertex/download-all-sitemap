@@ -43,6 +43,19 @@ You can also pass the API key directly:
 python download_sitemap.py --sitemap_url https://www.example.com/sitemap.xml --api_key your-api-key
 ```
 
+
+Typical usage:
+```bash
+python3 download_sitemap.py \
+  --sitemap_url https://cloudfix.com/sitemap.xml \
+  --limit 20 \
+  --filter blog \
+  --parser article-extractor2
+```
+
+TODO - Use Claude Haiku to do some cleanup on the .md to remove leftover HTML tags
+
+
 ## Output
 
 The script will create a directory structure under `output/${DOMAIN}/` containing all the downloaded pages as markdown files.

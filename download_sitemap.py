@@ -156,6 +156,39 @@ def save_markdown(content, url, output_dir):
     except Exception as e:
         logger.error(f"Error saving file for {url}: {e}")
 
+def save_json_response(article_data: dict, url: str, output_dir: str, parser: str):
+    """
+    Save the raw JSON response along with metadata about the parser used
+    """
+    try:
+        # Parse the URL to create directory structure
+        parsed_url = urlparse(url)
+        domain = parsed_url.netloc
+        path = parsed_url.path.strip('/') or 'index'
+        
+        # Create directory structure
+        file_path = os.path.join(output_dir, domain, path)
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        
+        # Add .json extension
+        file_path += '.json'
+        
+        # Add metadata about the parser used
+        response_data = {
+            'parser': parser,
+            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+            'url': url,
+            'response': article_data
+        }
+        
+        # Save the content
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump(response_data, f, indent=2, ensure_ascii=False)
+            
+        logger.info(f"Saved JSON: {file_path}")
+    except Exception as e:
+        logger.error(f"Error saving JSON file for {url}: {e}")
+
 def get_markdown_path(url: str, output_dir: str) -> str:
     """
     Generate the markdown file path for a given URL
@@ -251,6 +284,9 @@ def main():
                 article_data = download_with_semareader(url)
             else:
                 article_data = parse_article(url)
+                
+            # Save the raw JSON response first
+            save_json_response(article_data, url, args.output_dir, args.parser)
                 
             content = convert_to_markdown(article_data)
             if content:
