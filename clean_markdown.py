@@ -5,16 +5,24 @@ import boto3
 import json
 from typing import Optional
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
+import threading
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Add thread-local storage for boto3 clients
+thread_local = threading.local()
+
+# Modify get_bedrock_client to use thread-local storage
 def get_bedrock_client():
-    """Initialize and return the Bedrock client"""
-    return boto3.client(
-        service_name='bedrock-runtime',
-        region_name='us-east-1'  # Change this to your preferred region
-    )
+    """Initialize and return the Bedrock client using thread-local storage"""
+    if not hasattr(thread_local, "client"):
+        thread_local.client = boto3.client(
+            service_name='bedrock-runtime',
+            region_name='us-east-1'  # Change this to your preferred region
+        )
+    return thread_local.client
 
 def split_content(content: str, max_chunk_size: int = 6000) -> list:
     """Split content into chunks that respect markdown structure"""
@@ -231,14 +239,43 @@ def process_markdown_file(input_file: str, output_file: Optional[str] = None, sk
 
 def main():
     parser = argparse.ArgumentParser(description='Clean markdown files using Claude Haiku')
-    parser.add_argument('--input', required=True, help='Input markdown file path')
+    parser.add_argument('--input', required=True, help='Input markdown file or directory path')
     parser.add_argument('--output', help='Output file path (default: parallel output_clean directory)')
     parser.add_argument('--skip-existing', action='store_true', 
                        help='Skip processing if output file already exists')
+    parser.add_argument('--workers', type=int, default=4,
+                       help='Number of parallel workers (default: 4)')
     
     args = parser.parse_args()
     
-    process_markdown_file(args.input, args.output, args.skip_existing)
+    # Handle both single file and directory inputs
+    input_path = Path(args.input)
+    if input_path.is_file():
+        files_to_process = [input_path]
+    else:
+        files_to_process = list(input_path.rglob('*.md'))
+    
+    logger.info(f"Found {len(files_to_process)} files to process")
+    
+    # Process files in parallel using ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=args.workers) as executor:
+        # Create a list of futures
+        futures = [
+            executor.submit(
+                process_markdown_file,
+                str(file_path),
+                args.output,
+                args.skip_existing
+            )
+            for file_path in files_to_process
+        ]
+        
+        # Wait for all futures to complete
+        for future in futures:
+            try:
+                future.result()  # This will raise any exceptions that occurred
+            except Exception as e:
+                logger.error(f"Error processing file: {e}")
 
 if __name__ == '__main__':
     main() 
